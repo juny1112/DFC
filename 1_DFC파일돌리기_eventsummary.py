@@ -360,7 +360,7 @@ if __name__ == "__main__":
     # )
 
     # ④ 파일 하나만 돌리기 (저장 X, 통계만 확인)
-    file_name = "bms_01241228055_2023-04_r.csv"
+    file_name = "bms_01241228055_2023-03_r.csv"
     file_path = os.path.join(input_folder_path, file_name)
     save_path = os.path.join(output_folder_path, file_name.replace('_r.csv', '_DFC.csv'))
     processed_df, stats = process_DFC_file(

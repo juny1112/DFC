@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
 # ─────────────────────────────────────────────────────────────
@@ -8,7 +9,12 @@ from tqdm import tqdm
 #   R_uncharg 블록(및 사이 구간)을 R_aftercharg로 흡수
 # ─────────────────────────────────────────────────────────────
 FULLCHARGE_PARKING_MODE = True     # 완충 후 이동주차 모드 on/off
-MERGE_GAP_MINUTES = 10              # 흡수 기준 간격(분)
+MERGE_GAP_MINUTES = 30              # 흡수 기준 간격(분)
+
+# R_uncharg 블록 길이(시간) 조건
+# - 예: 10.0 → R_uncharg 블록 길이가 10시간 이상일 때만 "완충후 이동주차"로 흡수
+# - 0 또는 None 으로 두면 길이 조건을 사용하지 않음(= 기존 로직과 동일)
+MIN_UNCHARG_HOURS       = 7.0
 
 #미사용-완전충전중 및 미사용-부분충전중
 def rest_charging(data):
@@ -125,18 +131,31 @@ def rest_aftercharg(data, full):
 
 
 
-def rest_uncharg(data, enable_merge: bool | None = None):
+def rest_uncharg(
+    data,
+    enable_merge: bool | None = None,
+    min_uncharg_hours: float | None = None,
+):
     """
     1) 기본 라벨링:
        rest == 1 & (R_charg==0, R_partial_charg==0, R_aftercharg==0) → R_uncharg = 1
+
     2) (옵션) 완충 후 이동주차 모드(FULLCHARGE_PARKING_MODE):
        (a) R_aftercharg 블록 끝난 뒤 ≤ MERGE_GAP_MINUTES 내 시작하는
-           R_uncharg 블록이 있으면 사이 구간+해당 R_uncharg 블록 전체를 R_aftercharg로 흡수
-       (b) R_charg 블록 끝난 뒤 ≤ MERGE_GAP_MINUTES 내 시작하는
-           R_uncharg 블록이 있으면 사이 구간+해당 R_uncharg 블록 전체를 R_aftercharg로 흡수
+           R_uncharg 블록이 있으면,
+           - (선택) 해당 R_uncharg 블록 길이 ≥ min_uncharg_hours 조건을 만족할 때
+             사이 구간+해당 R_uncharg 블록 전체를 R_aftercharg로 흡수
+       (b) R_charg 블록 끝난 뒤도 동일 규칙 적용
+
     enable_merge:
-       - None: 전역 FULLCHARGE_PARKING_MODE 값을 따름
-       - True/False: 이 호출에 한해 강제 on/off
+       - None : 전역 FULLCHARGE_PARKING_MODE 값을 따름
+       - True : 이 호출에 한해 강제 on
+       - False: 이 호출에 한해 강제 off
+
+    min_uncharg_hours:
+       - None : 전역 MIN_UNCHARG_HOURS 사용
+       - > 0  : 이 호출에 한해 R_uncharg 블록 최소 길이(시간)를 덮어씀
+       - <=0  : 길이 조건 사용하지 않음 (gap 조건만 사용)
     """
 
     # 1) 기본 라벨링 ----------------------------------------------------------
@@ -157,13 +176,25 @@ def rest_uncharg(data, enable_merge: bool | None = None):
         enable = enable_merge
 
     if not enable:
+        # 모드 꺼져 있으면 여기서 바로 반환
         return data
 
-    # 3) 확장 규칙 적용 -------------------------------------------------------
+    # 3) time 컬럼 datetime 보장 --------------------------------------------
     if not pd.api.types.is_datetime64_any_dtype(data['time']):
         data['time'] = pd.to_datetime(data['time'], format='%Y-%m-%d %H:%M:%S')
 
     time_limit = pd.Timedelta(minutes=MERGE_GAP_MINUTES)
+
+    # R_uncharg 최소 길이 기준 설정 -----------------------------------------
+    if min_uncharg_hours is None:
+        min_uncharg_hours = MIN_UNCHARG_HOURS
+
+    if (min_uncharg_hours is not None) and (min_uncharg_hours > 0):
+        min_uncharg_td = pd.Timedelta(hours=min_uncharg_hours)
+    else:
+        # 0 또는 None 이면 길이 조건 사용 안 함
+        min_uncharg_td = None
+
     n = len(data)
 
     def get_blocks(series):
@@ -185,18 +216,32 @@ def rest_uncharg(data, enable_merge: bool | None = None):
     uncharg_blocks = get_blocks(data['R_uncharg'].fillna(0).astype(int))
     charg_blocks   = get_blocks(data['R_charg'].fillna(0).astype(int))
 
+    # 보조: R_uncharg 블록이 최소 길이 조건을 만족하는지 --------------------
+    def passes_uncharg_duration(unc_start: int, unc_end: int) -> bool:
+        """
+        - min_uncharg_td is None → 길이 조건 사용 안 함 → 항상 True
+        - 그 외: 블록 duration >= min_uncharg_td 인지 검사
+        """
+        if min_uncharg_td is None:
+            return True
+        duration = data.loc[unc_end, 'time'] - data.loc[unc_start, 'time']
+        return duration >= min_uncharg_td
+
     # (a) 기존 규칙: R_aftercharg 끝 기준 -------------------------------
     for (aft_start, aft_end) in after_blocks:
         # aft_end 이후 첫 번째 R_uncharg 블록
-        next_unc = next(((u_start, u_end) for (u_start, u_end) in uncharg_blocks
-                         if u_start > aft_end), None)
+        next_unc = next(
+            ((u_start, u_end) for (u_start, u_end) in uncharg_blocks
+             if u_start > aft_end),
+            None
+        )
         if not next_unc:
             continue
 
         unc_start, unc_end = next_unc
         gap = data.loc[unc_start, 'time'] - data.loc[aft_end, 'time']
 
-        if gap <= time_limit:
+        if (gap <= time_limit) and passes_uncharg_duration(unc_start, unc_end):
             # aft_end 이후부터 R_uncharg 블록 끝까지 흡수 (사이 구간 포함)
             data.loc[aft_end + 1:unc_end, 'R_aftercharg'] = 1
             data.loc[aft_end + 1:unc_end, 'R_uncharg']    = 0
@@ -204,20 +249,24 @@ def rest_uncharg(data, enable_merge: bool | None = None):
     # (b) 새 규칙: R_charg 끝 기준 ---------------------------------------
     for (ch_start, ch_end) in charg_blocks:
         # ch_end 이후 첫 번째 R_uncharg 블록
-        next_unc = next(((u_start, u_end) for (u_start, u_end) in uncharg_blocks
-                         if u_start > ch_end), None)
+        next_unc = next(
+            ((u_start, u_end) for (u_start, u_end) in uncharg_blocks
+             if u_start > ch_end),
+            None
+        )
         if not next_unc:
             continue
 
         unc_start, unc_end = next_unc
         gap = data.loc[unc_start, 'time'] - data.loc[ch_end, 'time']
 
-        if gap <= time_limit:
+        if (gap <= time_limit) and passes_uncharg_duration(unc_start, unc_end):
             # ch_end 이후부터 R_uncharg 블록 끝까지 흡수 (사이 구간 포함)
             data.loc[ch_end:unc_end, 'R_aftercharg'] = 1
             data.loc[ch_end:unc_end, 'R_uncharg']    = 0
 
     return data
+
 
 
 #세분화 포함된 엑셀 생성
@@ -386,12 +435,91 @@ def process_until_file(input_folder: str,
             continue
 
 
+def _one_file_job(args):
+    """
+    멀티프로세스 워커에서 실행될 1파일 처리.
+    args로만 값을 넘겨야 Windows spawn에서 안전합니다.
+    """
+    in_path, out_path, enable_merge, overwrite = args
+
+    # 이미 결과가 있으면 스킵
+    if (not overwrite) and os.path.exists(out_path):
+        return ("skip", os.path.basename(in_path), None)
+
+    try:
+        process_data(in_path, out_path, enable_merge=enable_merge)
+        return ("ok", os.path.basename(in_path), None)
+    except Exception as e:
+        return ("error", os.path.basename(in_path), str(e))
+
+
+def process_folder_mp(
+    input_folder: str,
+    output_folder: str,
+    skip_existing: bool = True,
+    enable_merge: bool | None = None,
+    workers: int | None = None,
+    chunksize: int = 1,
+):
+    """
+    폴더 내 모든 CSV를 멀티프로세스로 처리.
+    - skip_existing=True면 기존 *_r.csv 있으면 스킵
+    - enable_merge: 완충후이동주차 모드 (None이면 전역 FULLCHARGE_PARKING_MODE 따름)
+    - workers: 프로세스 개수 (None이면 os.cpu_count())
+    - chunksize: 작업 묶음 크기 (파일이 많으면 4~16 정도가 더 빠를 때도 있음)
+    """
+    os.makedirs(output_folder, exist_ok=True)
+
+    # CSV만 정렬
+    files = [fn for fn in os.listdir(input_folder) if fn.lower().endswith(".csv")]
+    files.sort()
+
+    jobs = []
+    for filename in files:
+        in_path = os.path.join(input_folder, filename)
+        out_name = filename.replace("_CR.csv", "_r.csv")
+        out_path = os.path.join(output_folder, out_name)
+
+        # skip_existing=True면 overwrite=False로 전달
+        overwrite = not skip_existing
+        jobs.append((in_path, out_path, enable_merge, overwrite))
+
+    if not jobs:
+        print("[info] 처리할 CSV가 없습니다.")
+        return
+
+    ok = skip = err = 0
+    errors = []
+
+    # ProcessPoolExecutor: CPU 코어 사용
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        # tqdm 진행률: as_completed로 완료될 때마다 1씩 증가
+        futures = [ex.submit(_one_file_job, job) for job in jobs]
+
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="Processing Files (MP)"):
+            status, fname, msg = fut.result()
+            if status == "ok":
+                ok += 1
+            elif status == "skip":
+                skip += 1
+            else:
+                err += 1
+                errors.append((fname, msg))
+
+    print(f"[done] ok={ok}, skip={skip}, error={err}")
+    if errors:
+        print("[errors] 아래 파일들 실패:")
+        for f, m in errors[:30]:
+            print(f"  - {f}: {m}")
+        if len(errors) > 30:
+            print(f"  ... ({len(errors)-30}개 더 있음)")
+
 
 # ─────────────────────────────────────────────────────────────
 # 폴더 전체 코드실행 (예시)
 # ─────────────────────────────────────────────────────────────
-# parsing_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\CR_parsing'
-# save_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_원본'
+parsing_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\CR_parsing'
+save_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\R_parsing_완충후이동주차'
 
 # # 처음부터 선택파일 까지 '포함'하여 처리
 # process_until_file(
@@ -411,15 +539,25 @@ def process_until_file(input_folder: str,
 # resume_after_file(parsing_folder_path, save_folder_path, 'bms_altitude_01241592878_2024-02_CR.csv', skip_existing=True)
 #
 
-# 데이터 하나만 코드실행
-in_file  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\CR_parsing\bms_01241228055_2023-04_CR.csv'
-# out_file = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차\bms_01241228086_2023-03_r.csv'
-out_file = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202\bms_01241228055_2023-04_r.csv'
-
+# # 데이터 하나만 코드실행
+# in_file  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\CR_parsing\bms_01241228055_2023-03_CR.csv'
+# # out_file = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차\bms_01241228086_2023-03_r.csv'
+# out_file = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202\bms_01241228055_2023-03_r.csv'
 # enable_merge:
 #   - None  → 위에 FULLCHARGE_PARKING_MODE 값 따름
 #   - True  → 이 파일만 강제로 완충후 이동주차 모드 ON
 #   - False → 이 파일만 강제로 OFF
-process_data(in_file, out_file, enable_merge=None)
+# process_data(in_file, out_file, enable_merge=None)
 
 
+if __name__ == "__main__":
+    # CPU 코어 다 쓰면 디스크 I/O 때문에 오히려 느려질 수도 있어요.
+    # 처음엔 workers=4~8 정도로 테스트 추천.
+    process_folder_mp(
+        parsing_folder_path,
+        save_folder_path,
+        skip_existing=True,
+        enable_merge=None,
+        workers=8,       # ← 여기 조절!
+        chunksize=1
+    )

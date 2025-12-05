@@ -27,7 +27,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 #       'both'   : BEFORE vs DFC 비교
 #       'before' : BEFORE만 플롯 (CR/R 모두 포함)
 USER_ID    = 'bms_01241228055'   # 필요 시 None로 변경
-TARGET_YM  = '2023-04'           # 필요 시 None로 변경
+TARGET_YM  = '2023-03'           # 필요 시 None로 변경
 PLOT_MODE  = 'both'            # 'both' 또는 'before'
 
 
