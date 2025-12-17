@@ -8,7 +8,7 @@ from tqdm import tqdm
 # - 완충 후 이동주차 모드: R_aftercharg 끝난 뒤 ≤ MERGE_GAP_MINUTES 내 시작하는
 #   R_uncharg 블록(및 사이 구간)을 R_aftercharg로 흡수
 # ─────────────────────────────────────────────────────────────
-FULLCHARGE_PARKING_MODE = True     # 완충 후 이동주차 모드 on/off
+FULLCHARGE_PARKING_MODE = False     # 완충 후 이동주차 모드 on/off
 MERGE_GAP_MINUTES = 30              # 흡수 기준 간격(분)
 
 # R_uncharg 블록 길이(시간) 조건
@@ -518,8 +518,8 @@ def process_folder_mp(
 # ─────────────────────────────────────────────────────────────
 # 폴더 전체 코드실행 (예시)
 # ─────────────────────────────────────────────────────────────
-parsing_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\CR_parsing'
-save_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\R_parsing_완충후이동주차'
+parsing_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\CR_parsing'
+save_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_원본'
 
 # # 처음부터 선택파일 까지 '포함'하여 처리
 # process_until_file(

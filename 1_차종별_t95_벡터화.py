@@ -119,8 +119,8 @@ if __name__ == "__main__":
     # df.to_csv(csv_path, index=False, encoding='utf-8-sig')
     # print(f"[SAVE] CSV -> {csv_path}")
 
-    # ─ ③ (옵션) 파일 하나만 t95 계산해서 확인 ─
+    # # ─ ③ (옵션) 파일 하나만 t95 계산해서 확인 ─
     # 필요할 때만 아래 주석 해제해서 사용
-    single_file = r"Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202\bms_01241228086_2023-12_DFC.csv"
+    single_file = r'//192.168.1.250/SamsungSTF/Processed_Data/DFC/EV6/DFC_완충후이동주차/bms_01241225206_2023-01_DFC.csv'
     t95_single_h = compute_t95_for_file(single_file)
     print(f"[INFO] single file t95 (h): {os.path.basename(single_file)} -> {t95_single_h:.5f} h")

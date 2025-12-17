@@ -3,6 +3,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ─────────────────────────────────────────────────────────────
 # 충전후 구간 불필요한 데이터 삭제 (벡터화, 인덱스 안전)
@@ -17,13 +18,70 @@ def remove_consecutive_ones(data):
     pos_from_start = data.groupby(grp).cumcount()
     pos_from_end = data.iloc[::-1].groupby(grp.iloc[::-1]).cumcount()[::-1]
 
-    # 1이 3개 이상인 구간은 첫/마지막만 보존, 나머지 제거
+    # ─────────────────────────────────────────────
+    # ① 보호 대상 R_aftercharg 그룹 찾기
+    #    조건: 해당 after 구간 바로 직전 R_charg 구간의 "시작 SOC ≥ 95"
+    # ─────────────────────────────────────────────
+    protect_groups = set()
+
+    if ('R_charg' in data.columns) and ('soc' in data.columns):
+        # R_aftercharg == 1 인 그룹들만 대상
+        after_groups = grp[s == 1].unique()
+
+        for g in after_groups:
+            # 이 그룹에 속한 인덱스들
+            idxs = np.flatnonzero(grp.values == g)
+            if len(idxs) == 0:
+                continue
+
+            start_idx = int(idxs[0])  # after 구간 시작 행 인덱스
+
+            # 맨 앞이면 바로 직전 구간이 없으므로 패스
+            if start_idx == 0:
+                continue
+
+            prev_idx = start_idx - 1
+
+            # 직전 행이 R_charg==1 이 아니면 패스
+            rc_prev = int(data.loc[prev_idx, 'R_charg']) if not pd.isna(data.loc[prev_idx, 'R_charg']) else 0
+            if rc_prev != 1:
+                continue
+
+            # 직전 R_charg 구간의 "시작 인덱스" 찾기 (연속 1 구간의 맨 앞)
+            k = prev_idx
+            while k > 0:
+                val = data.loc[k-1, 'R_charg']
+                rc = int(val) if not pd.isna(val) else 0
+                if rc != 1:
+                    break
+                k -= 1
+            start_charg_idx = k
+
+            # 그 구간 시작 시점 SOC ≥ 95 인지 확인
+            soc_start = pd.to_numeric(data.loc[start_charg_idx, 'soc'], errors='coerce')
+            if pd.notna(soc_start) and soc_start >= 95:
+                protect_groups.add(g)
+
+    # 각 행이 보호 대상 그룹인지 여부 시리즈
+    protect_flag = grp.isin(protect_groups)
+
+    # ─────────────────────────────────────────────
+    # ② keep 마스크 구성
+    #    - s==0: 항상 유지
+    #    - s==1 & 보호 그룹: 전부 유지 (중간행 삭제 금지)
+    #    - s==1 & 비보호 그룹:
+    #        · 길이<3 → 전부 유지
+    #        · 길이≥3 → 처음/마지막만 유지
+    # ─────────────────────────────────────────────
     keep = (
         (s == 0) |
-        ((s == 1) & (group_sizes < 3)) |
-        ((s == 1) & (group_sizes >= 3) & ((pos_from_start == 0) | (pos_from_end == 0)))
+        ((s == 1) & protect_flag) |
+        ((s == 1) & ~protect_flag & (group_sizes < 3)) |
+        ((s == 1) & ~protect_flag & (group_sizes >= 3) & ((pos_from_start == 0) | (pos_from_end == 0)))
     )
+
     return data.loc[keep].reset_index(drop=True)
+
 
 # ─────────────────────────────────────────────────────────────
 # DFC 알고리즘 적용 + 이벤트 통계(선택)
@@ -120,6 +178,12 @@ def DFC(data, collect_stats=False):
         t_margin = pd.Timedelta(hours=1)
 
         for dstart, cend in charg_2_pairs:
+            # 🔹 지연 시작점 SOC가 95 이상이면 이 이벤트는 DFC 적용하지 않음
+            if 'soc' in data.columns:
+                soc_d = pd.to_numeric(data.loc[dstart, 'soc'], errors='coerce')
+                if pd.notna(soc_d) and soc_d >= 95:
+                    continue
+
             # 다음 충전 시작
             pos_c = np.searchsorted(cstarts, cend + 1, side='left')
             next_charge_start = cstarts[pos_c] if pos_c < len(cstarts) else None
@@ -153,7 +217,8 @@ def DFC(data, collect_stats=False):
                     'delay_hours': delayed_time.total_seconds() / 3600.0
                 })
                 # 실제 보정 적용
-                data.loc[dstart + 1 : cend, 'time'] = data.loc[dstart + 1 : cend, 'time'] + delayed_time
+                data.loc[dstart + 1: cend, 'time'] = data.loc[dstart + 1: cend, 'time'] + delayed_time
+
 
     # 세분화 컬럼 삭제(존재할 때만)
     columns_to_delete = ['R_charg', 'R_partial_charg', 'R_aftercharg', 'R_uncharg']
@@ -317,15 +382,156 @@ def _process_files_and_summary(files, output_folder, summary_csv_path=None,
 
     return summary_df
 
+
+def _dfc_one_file_job(args):
+    """
+    (in_path, out_path_or_None, write_outputs, skip_existing) 받아서
+    - DFC 처리(옵션으로 파일 저장)
+    - stats dict 반환 (요약용)
+    """
+    in_path, out_path, write_outputs, skip_existing = args
+    p = Path(in_path)
+
+    # 출력 파일이 있고 스킵이면: 통계도 스킵할지 정책 선택 필요
+    # 지금은 "스킵되면 요약에서도 제외" = 기존 단일프로세스와 동일 동작
+    if write_outputs and out_path and skip_existing and Path(out_path).exists():
+        return ("skip", p.stem, None)
+
+    try:
+        _, stats = process_DFC_file(
+            str(p),
+            save_path=str(out_path) if (write_outputs and out_path) else None,
+            collect_stats=True,
+            write_output=write_outputs
+        )
+
+        if stats is None:
+            stats = {
+                'delta_t95_event_N': 0,
+                'delta_t95_event_mean_h': 0.0,
+                'delta_t95_event_std_h': 0.0,
+                'delta_t95_event_sum_h': 0.0
+            }
+
+        # 요약 row 생성
+        id_token, ym = parse_id_token_and_ym(p)
+        row = {
+            'file_stem': p.stem,
+            'id_token': id_token,
+            'ym': ym,
+            'delta_t95_event_N': int(stats['delta_t95_event_N']),
+            'delta_t95_event_mean_h': float(stats['delta_t95_event_mean_h']),
+            'delta_t95_event_std_h': float(stats['delta_t95_event_std_h']),
+            'delta_t95_event_sum_h': float(stats['delta_t95_event_sum_h']),
+        }
+        return ("ok", p.stem, row)
+
+    except Exception as e:
+        # 에러도 요약에 0으로 남김(기존 로직 유지)
+        id_token, ym = parse_id_token_and_ym(p)
+        row = {
+            'file_stem': p.stem,
+            'id_token': id_token,
+            'ym': ym,
+            'delta_t95_event_N': 0,
+            'delta_t95_event_mean_h': 0.0,
+            'delta_t95_event_std_h': 0.0,
+            'delta_t95_event_sum_h': 0.0,
+        }
+        return ("error", f"{p.name}: {e}", row)
+
+
+def process_DFC_folder_mp(
+    input_folder,
+    output_folder,
+    summary_csv_path=None,
+    pattern="*.csv",
+    write_outputs=True,
+    skip_existing=True,
+    workers=None,
+):
+    """
+    DFC 멀티프로세스 폴더 처리 + summary 생성
+    - write_outputs=True : *_DFC.csv 저장
+    - skip_existing=True : *_DFC.csv 있으면 스킵(요약에서도 제외: 기존과 동일)
+    """
+    files = _collect_input_files(input_folder, pattern=pattern)
+    if not files:
+        print("[info] 처리할 CSV가 없습니다.")
+        return pd.DataFrame(columns=SUMMARY_COLUMNS)
+
+    output_dir = Path(output_folder)
+    if write_outputs:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 작업 리스트
+    jobs = []
+    for p in files:
+        out_path = None
+        if write_outputs:
+            out_name = p.name.replace("_r.csv", "_DFC.csv")
+            out_path = str(output_dir / out_name)
+        jobs.append((str(p), out_path, write_outputs, skip_existing))
+
+    summary_rows = []
+    ok = skip = err = 0
+
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        futures = [ex.submit(_dfc_one_file_job, job) for job in jobs]
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="DFC Processing (MP)"):
+            status, msg, row = fut.result()
+            if status == "ok":
+                ok += 1
+                summary_rows.append(row)
+            elif status == "skip":
+                skip += 1
+                # 스킵은 요약 제외(기존과 동일)
+            else:
+                err += 1
+                print(f"[error] {msg}")
+                summary_rows.append(row)
+
+    # summary 저장
+    if summary_csv_path is None:
+        summary_csv_path = str(output_dir / "dfc_summary.csv") if write_outputs else str(Path(input_folder) / "dfc_summary.csv")
+
+    summary_df = pd.DataFrame(summary_rows, columns=SUMMARY_COLUMNS)
+    summary_df.to_csv(summary_csv_path, index=False, encoding="utf-8-sig")
+
+    print(f"[done] ok={ok}, skip={skip}, error={err}")
+    print(f"✅ 요약 저장: {summary_csv_path} (rows={len(summary_df)})")
+    return summary_df
+
 # ─────────────────────────────────────────────────────────────
 # 실행 예시(필요한 부분만 주석 해제해서 사용)
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # 경로 설정
+    # input_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_원본'
+    # output_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_원본'
+    # summary_folder_path = r'G:\공유 드라이브\BSG_DFC_result\EV6\DFC_원본'
+    # summary_csv_path = os.path.join(summary_folder_path, 'dfc_features_summary.csv')
+    # os.makedirs(summary_folder_path, exist_ok=True)
+
     input_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
     output_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
     summary_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
     summary_csv_path = os.path.join(summary_folder_path, 'dfc_features_summary.csv')
+    os.makedirs(summary_folder_path, exist_ok=True)
+
+    # ④ 파일 하나만 돌리기 (저장 O, 통계 확인)
+    file_name = "bms_01241364543_2024-03_r.csv"  # ← 여기만 바꿔주면 됨
+    file_path = os.path.join(input_folder_path, file_name)
+    save_path = os.path.join(output_folder_path, file_name.replace('_r.csv', '_DFC.csv'))
+
+    processed_df, stats = process_DFC_file(
+        file_path,
+        save_path=save_path,
+        collect_stats=True,  # 통계도 보고 싶으면 True
+        write_output=True  # DFC CSV 저장하고 싶으면 True
+    )
+
+    print(stats)
 
     # # ① 폴더 전체 돌리기 (파일이름 오름차순) + 이미 있으면 스킵
     # process_DFC_folder(
@@ -359,16 +565,27 @@ if __name__ == "__main__":
     #     skip_existing=True
     # )
 
-    # ④ 파일 하나만 돌리기 (저장 X, 통계만 확인)
-    file_name = "bms_01241228055_2023-03_r.csv"
-    file_path = os.path.join(input_folder_path, file_name)
-    save_path = os.path.join(output_folder_path, file_name.replace('_r.csv', '_DFC.csv'))
-    processed_df, stats = process_DFC_file(
-        file_path,
-        save_path=save_path,
-        collect_stats=True,
-        write_output=True
-    )
-    print(stats)
+    # # ④ 파일 하나만 돌리기 (저장 X, 통계만 확인)
+    # file_name = "bms_01241228055_2023-03_r.csv"
+    # file_path = os.path.join(input_folder_path, file_name)
+    # save_path = os.path.join(output_folder_path, file_name.replace('_r.csv', '_DFC.csv'))
+    # processed_df, stats = process_DFC_file(
+    #     file_path,
+    #     save_path=save_path,
+    #     collect_stats=True,
+    #     write_output=True
+    # )
+    # print(stats)
+
+    # # 멀티프로세스
+    # process_DFC_folder_mp(
+    #     input_folder_path,
+    #     output_folder_path,
+    #     summary_csv_path=summary_csv_path,
+    #     pattern="*.csv",
+    #     write_outputs=True,
+    #     skip_existing=True,
+    #     workers=8,   # 네트워크 드라이브면 4~8 추천
+    # )
 
 

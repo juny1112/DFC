@@ -9,13 +9,18 @@ from pandas.tseries.offsets import MonthEnd
 # ─────────────────────────────────────────────────────────────────────
 # 경로/설정
 # ─────────────────────────────────────────────────────────────────────
-# DIR_BEFORE = r'Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\R_parsing_완충후이동주차'   # _CR / _R 파일 (before)
-# DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\DFC_완충후이동주차'         # _DFC 파일
+# DIR_BEFORE = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차'   # _CR / _R 파일 (before)
+# DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차'         # _DFC 파일
 # OUT_DIR    = r'G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차'
 
-DIR_BEFORE = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'   # _CR / _R 파일 (before)
-DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'         # _DFC 파일
-OUT_DIR    = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
+# DIR_BEFORE = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'   # _CR / _R 파일 (before)
+# DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'         # _DFC 파일
+# OUT_DIR    = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
+
+DIR_BEFORE = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차'   # _CR / _R 파일 (before)
+DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\불량개입'         # _DFC 파일
+OUT_DIR    = r'G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차'
+
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ▶ 여기서 사용자(ID) / 월 / 플롯 모드 지정
@@ -26,10 +31,9 @@ os.makedirs(OUT_DIR, exist_ok=True)
 #   - PLOT_MODE:
 #       'both'   : BEFORE vs DFC 비교
 #       'before' : BEFORE만 플롯 (CR/R 모두 포함)
-USER_ID    = 'bms_01241228055'   # 필요 시 None로 변경
-TARGET_YM  = '2023-03'           # 필요 시 None로 변경
+USER_ID    = 'bms_01241225206'   # 필요 시 None로 변경
+TARGET_YM  = '2023-11'           # 필요 시 None로 변경
 PLOT_MODE  = 'both'            # 'both' 또는 'before'
-
 
 # ─────────────────────────────────────────────────────────────────────
 # 파일명 파싱: bms_<ID>_<YYYY-MM>_CR.csv / bms_<ID>_<YYYY-MM>_R.csv / bms_<ID>_<YYYY-MM>_DFC.csv

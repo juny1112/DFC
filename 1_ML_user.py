@@ -15,6 +15,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler
 
+plt.rcParams['font.family'] = 'Arial'
 # ─────────────────────────────────────────────────────────
 # (선택) Windows 스레드 설정
 # ─────────────────────────────────────────────────────────
@@ -24,8 +25,8 @@ os.environ.setdefault("LOKY_MAX_CPU_COUNT", "8")
 # ==========================================================
 # 사용자 입력
 # ==========================================================
-COMBINED_CSV = r"G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차\dfc_features_with_clusters.csv"
-OUT_DIR      = r"G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차"
+COMBINED_CSV = r"G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차\monthly_cluster\dfc_features_with_clusters.csv"
+OUT_DIR      = r"G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차\user_cluster"
 
 # ==========================================================
 # 저장 유틸 (권한 문제 대비)
@@ -155,39 +156,74 @@ def fit_and_plot_userlevel(df_for_fit: pd.DataFrame, out_dir: Path,
     except Exception:
         cv_acc = np.nan
 
-    # 결정경계: 원 단위 그리드 생성 → 표준화 후 예측
+    # 결정경계: 원 단위 그리드 생성은 유지(진단용), 플롯은 심플하게 변경
     x_min, x_max = used_w[N_col].min(), used_w[N_col].max()
     y_min, y_max = used_w[M_col].min(), used_w[M_col].max()
     pad_x = (x_max - x_min) * 0.05 if x_max > x_min else 1.0
     pad_y = (y_max - y_min) * 0.05 if y_max > y_min else 1.0
-    gx = np.linspace(x_min - pad_x, x_max + pad_x, 300)
-    gy = np.linspace(y_min - pad_y, y_max + pad_y, 300)
-    Xo, Yo = np.meshgrid(gx, gy)
-    Z = clf.predict(scaler.transform(np.c_[Xo.ravel(), Yo.ravel()])).reshape(Xo.shape)
 
     # 클러스터 센터: 원 단위로 역변환 (재정렬된 순서 기반)
     centers_orig = scaler.inverse_transform(centers_std)
     centers_df = pd.DataFrame(centers_orig, columns=[DISP_X, DISP_Y]).round(3)
 
-    # 플롯
-    fig = plt.figure(figsize=(8, 7))
-    plt.contourf(Xo, Yo, Z, levels=np.arange(Z.max()+2)-0.5, alpha=0.25, cmap="coolwarm")
-    plt.contour(Xo, Yo, Z, colors="k", linewidths=1)
-    cs = plt.contour(Xo, Yo, Xo*Yo, levels=[50,100,150,300,450,600,750,900], alpha=0.65, cmap="viridis")
-    plt.clabel(cs, inline=True, fontsize=8, fmt='%d')
+    # ─────────────────────────────────────────────
+    # 플롯 (앞에서 만든 monthly 클러스터 figure와 스타일 통일)
+    # ─────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=(7.5, 6))
 
-    plt.scatter(used_w[N_col], used_w[M_col], s=18, c=labels, cmap="tab10", edgecolor="k")
-    #plt.scatter(centers_orig[:,0], centers_orig[:,1], marker="X", s=150, color="red", label="Cluster centers")
+    # 클러스터 라벨 (legend용)
+    cluster_labels = {
+        0: r"Minimal $R_{\mathrm{FC}}$",
+        1: r"Frequent $R_{\mathrm{FC}}$",
+        2: r"Long $R_{\mathrm{FC}}$",
+    }
 
-    plt.xlabel(DISP_X); plt.ylabel(DISP_Y)
-    plt.title(
-        f"User-level Clustering (k=3, winz={'on' if winsorize_mean else 'off'}, "
-        f"sil={None if np.isnan(sil) else round(sil,3)}, acc={None if np.isnan(acc) else round(acc,3)})"
+    # 색/마커 팔레트 (cluster별 색상)
+    palette = ["#cd534c", "#20854e", "#0073c2"]  # 0,1,2
+    markers = ["o", "s", "^"]
+
+    for cid in range(km.n_clusters):
+        m = (labels == cid)
+        if not np.any(m):
+            continue
+        ax.scatter(
+            used_w.loc[m, N_col],
+            used_w.loc[m, M_col],
+            s=30,
+            marker=markers[cid % len(markers)],
+            c=palette[cid % len(palette)],
+            edgecolor="k",
+            linewidth=0.5,
+            alpha=0.9,
+            label=cluster_labels.get(cid, f"Cluster {cid}"),
+        )
+
+    # 축 범위 여유
+    ax.set_xlim(x_min - pad_x, x_max + pad_x)
+    ax.set_ylim(y_min - pad_y, y_max + pad_y)
+
+    # 축 라벨 (latex 스타일, 앞 figure와 비슷하게)
+    ax.set_xlabel(r"N(DFC)/month", fontsize=8)
+    ax.set_ylabel(r"AVG($\Delta t_{100\%}$)/month", fontsize=8)
+
+    # 눈금 스타일
+    ax.tick_params(axis="both", labelsize=8, width=1.2, length=5)
+
+    # legend (테두리 연한 회색)
+    leg = ax.legend(
+        fontsize=8,
+        loc="upper right",
+        frameon=True,
     )
-    plt.legend(); plt.tight_layout()
+    frame = leg.get_frame()
+    frame.set_edgecolor("Grey")
+    frame.set_linewidth(0.6)
+
+    fig.tight_layout()
     plot_path = out_dir / plot_name
     safe_savefig(fig, plot_path, dpi=200)
     plt.close(fig)
+
 
     # 라벨 저장 (user_id 유지)
     df_out = df.copy()
