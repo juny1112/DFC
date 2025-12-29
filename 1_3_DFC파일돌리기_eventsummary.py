@@ -513,14 +513,14 @@ if __name__ == "__main__":
     # summary_csv_path = os.path.join(summary_folder_path, 'dfc_features_summary.csv')
     # os.makedirs(summary_folder_path, exist_ok=True)
 
-    input_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
-    output_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
-    summary_folder_path = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
+    input_folder_path = r'C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차'
+    output_folder_path = r'C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차'
+    summary_folder_path = r'C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
     summary_csv_path = os.path.join(summary_folder_path, 'dfc_features_summary.csv')
     os.makedirs(summary_folder_path, exist_ok=True)
 
     # ④ 파일 하나만 돌리기 (저장 O, 통계 확인)
-    file_name = "bms_01241364543_2024-03_r.csv"  # ← 여기만 바꿔주면 됨
+    file_name = "bms_01241228082_2023-10_r.csv"  # ← 여기만 바꿔주면 됨
     file_path = os.path.join(input_folder_path, file_name)
     save_path = os.path.join(output_folder_path, file_name.replace('_r.csv', '_DFC.csv'))
 
@@ -565,17 +565,6 @@ if __name__ == "__main__":
     #     skip_existing=True
     # )
 
-    # # ④ 파일 하나만 돌리기 (저장 X, 통계만 확인)
-    # file_name = "bms_01241228055_2023-03_r.csv"
-    # file_path = os.path.join(input_folder_path, file_name)
-    # save_path = os.path.join(output_folder_path, file_name.replace('_r.csv', '_DFC.csv'))
-    # processed_df, stats = process_DFC_file(
-    #     file_path,
-    #     save_path=save_path,
-    #     collect_stats=True,
-    #     write_output=True
-    # )
-    # print(stats)
 
     # # 멀티프로세스
     # process_DFC_folder_mp(

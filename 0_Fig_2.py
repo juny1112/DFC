@@ -61,10 +61,10 @@ ALPHA_MAIN      = 0.450
 ALPHA_INSET     = 0.450
 
 # inset 크기 (축 좌표 기준)
-INSET_WIDTH_FRAC  = 0.45
-INSET_HEIGHT_FRAC = 0.45
-INSET_PAD         = 0.04
-EXTRA_DOWN        = 0.01
+INSET_WIDTH_FRAC  = 0.40
+INSET_HEIGHT_FRAC = 0.40
+INSET_PAD         = 0.05
+EXTRA_DOWN        = 0
 
 # figure별 main-x/y + inset-x/y + bin 설정
 PLOT_LIMITS = {
@@ -213,8 +213,8 @@ def plot_cluster_scatter_ax(ax, df_feat: pd.DataFrame):
         1: r"Frequent $R_{\mathrm{FC}}$",
         2: r"Long $R_{\mathrm{FC}}$",
     }
-    palette = ["#cd534c", "#20854e", "#0073c2"]  # cluster 0,1,2
-    markers = ['o', 's', '^']
+    palette = ["#cd534c", "#4dbbd5", "#0073c2"]  # cluster 0,1,2
+    #markers = ['o', 's', '^']
 
     for cid in sorted(used["cluster"].unique()):
         sub = used[used["cluster"] == cid]
@@ -224,7 +224,7 @@ def plot_cluster_scatter_ax(ax, df_feat: pd.DataFrame):
             sub[x_base_col],     # x축: N(DFC)
             sub[y_base_col],     # y축: AVG(Δt_100%)
             s=18,
-            marker=markers[cid % len(markers)],
+            marker='o',
             c=palette[cid % len(palette)],
             edgecolor='k',
             linewidth=0.3,
@@ -448,12 +448,12 @@ def make_figure2(merged, sub0, sub1, sub2, df_feat, out_dir):
     """
 
     # 2-column width: 180 mm ~ 7.09 inch → 약 7.1 inch 사용
-    fig = plt.figure(figsize=(7.1, 3.5), dpi=300)
+    fig = plt.figure(figsize=(7.2, 2.8), dpi=300)
 
     # 2행 3열 GridSpec
     gs = GridSpec(
         nrows=2, ncols=3,
-        width_ratios=[1.2, 1.1, 1.1],
+        width_ratios=[2, 1, 1], # 컬럼 비율
         height_ratios=[1.0, 1.0],
         wspace=0.18,   # 패널 가로 간격 축소
         hspace=0.22,   # 패널 세로 간격 축소
@@ -489,6 +489,7 @@ def make_figure2(merged, sub0, sub1, sub2, df_feat, out_dir):
 
     # 레이아웃 먼저 맞추고
     fig.tight_layout(rect=[0, 0, 1, 0.97])
+
 
     # 각 axes 기준으로 패널 레이블 추가
     add_panel_label(axA, "a")

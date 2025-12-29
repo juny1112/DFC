@@ -17,9 +17,9 @@ from pandas.tseries.offsets import MonthEnd
 # DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'         # _DFC 파일
 # OUT_DIR    = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_수정용_251202'
 
-DIR_BEFORE = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차'   # _CR / _R 파일 (before)
-DIR_AFTER  = r'Z:\SamsungSTF\Processed_Data\DFC\EV6\불량개입'         # _DFC 파일
-OUT_DIR    = r'G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차'
+DIR_BEFORE = r'C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차'   # _CR / _R 파일 (before)
+DIR_AFTER  = r'C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차'         # _DFC 파일
+OUT_DIR    = r'G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차\Suppl\Minimal_후보'
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -31,8 +31,8 @@ os.makedirs(OUT_DIR, exist_ok=True)
 #   - PLOT_MODE:
 #       'both'   : BEFORE vs DFC 비교
 #       'before' : BEFORE만 플롯 (CR/R 모두 포함)
-USER_ID    = 'bms_01241225206'   # 필요 시 None로 변경
-TARGET_YM  = '2023-11'           # 필요 시 None로 변경
+USER_ID    = 'bms_altitude_01241248903'   # 필요 시 None로 변경
+TARGET_YM  = None          # 필요 시 None로 변경
 PLOT_MODE  = 'both'            # 'both' 또는 'before'
 
 # ─────────────────────────────────────────────────────────────────────
@@ -140,12 +140,12 @@ def draw_window(ax, df_cr, df_dfc=None, show_legend=False, plot_mode='both'):
 
     if plot_mode == 'both':
         ax.plot(df_cr['time'],  df_cr['soc'],
-                color='#3366cc', linestyle='-',  linewidth=lw, label='DFC not applied')
+                color='#cc0000', linestyle='-',  linewidth=lw, label='DFC not applied')
         ax.plot(df_dfc['time'], df_dfc['soc'],
-                color='#cc0000', linestyle='--', linewidth=lw, label='DFC applied')
+                color='#3366cc', linestyle='--', linewidth=lw, label='DFC applied')
     elif plot_mode == 'before':
         ax.plot(df_cr['time'], df_cr['soc'],
-                color='#3366cc', linestyle='-', linewidth=lw, label='DFC not applied')
+                color='#cc0000', linestyle='-', linewidth=lw, label='DFC not applied')
     else:
         raise ValueError(f"[ERR] Unknown plot_mode in draw_window: {plot_mode}")
 
