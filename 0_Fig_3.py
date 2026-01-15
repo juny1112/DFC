@@ -11,6 +11,41 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # ─────────────────────────────────────────────────────
+# (토글) 주행실패(SOC==0) 이후 DFC 곡선 표시 여부
+#  - False: 원래대로 끝까지 표시
+#  - True : "마지막 SOC0 연속구간 시작"부터 DFC 곡선 표시 안 함
+# ─────────────────────────────────────────────────────
+CUTOFF_DFC_AFTER_LAST_SOC0 = True
+SOC0_EPS = 1e-9
+
+def last_soc0_block_start_time(
+    df: pd.DataFrame,
+    soc_col: str = "soc",
+    time_col: str = "time"
+) -> Optional[pd.Timestamp]:
+    """
+    df 내에서 soc <= SOC0_EPS 인 '마지막 연속 블록'의 시작 time을 반환.
+    없으면 None.
+    """
+    if df is None or df.empty:
+        return None
+    if soc_col not in df.columns or time_col not in df.columns:
+        return None
+
+    soc = pd.to_numeric(df[soc_col], errors="coerce")
+    mask = soc.notna() & (soc <= SOC0_EPS)
+    if not mask.any():
+        return None
+
+    arr = mask.to_numpy()
+    last_idx = int(np.flatnonzero(arr)[-1])  # 마지막 SOC0 위치
+    start_idx = last_idx
+    while start_idx > 0 and arr[start_idx - 1]:
+        start_idx -= 1
+
+    return pd.to_datetime(df.iloc[start_idx][time_col])
+
+# ─────────────────────────────────────────────────────
 # Global style (Nature Energy-like)
 # ─────────────────────────────────────────────────────
 plt.rcParams.update({
@@ -308,23 +343,48 @@ def style_time_soc_axes(ax):
     thin_spines(ax, lw=0.4)
 
 
-def draw_panel(ax, df_cr: pd.DataFrame, df_ap: pd.DataFrame, start_ts: pd.Timestamp, end_ts: pd.Timestamp):
+def draw_panel(
+    ax,
+    df_cr: pd.DataFrame,
+    df_ap: pd.DataFrame,
+    start_ts: pd.Timestamp,
+    end_ts: pd.Timestamp
+):
     if df_cr.empty and df_ap.empty:
         ax.axis("off")
         return
 
-    cr = convert_to_day_axis(df_cr, start_ts, end_ts)
-    ap = convert_to_day_axis(df_ap, start_ts, end_ts)
+    # ── (추가) 토글에 따라 DFC를 SOC0 이후 컷 ──
+    df_ap_plot = df_ap
+    if CUTOFF_DFC_AFTER_LAST_SOC0:
+        cutoff_ts = last_soc0_block_start_time(df_ap)
+        if cutoff_ts is not None:
+            df_ap_plot = df_ap[df_ap["time"] < cutoff_ts].copy()
 
-    ax.plot(cr["day_idx"], cr["soc"], color=CLR_CR, linestyle=LS_CR, linewidth=LW_CR,
-            alpha=ALPHA_CR, label=LAB_CR)
-    ax.plot(ap["day_idx"], ap["soc"], color=CLR_APPL, linestyle=LS_APPL, linewidth=LW_APPL,
-            alpha=ALPHA_APPL, label=LAB_APPL)
+    cr = convert_to_day_axis(df_cr, start_ts, end_ts)
+    ap = convert_to_day_axis(df_ap_plot, start_ts, end_ts)
+
+    ax.plot(
+        cr["day_idx"], cr["soc"],
+        color=CLR_CR, linestyle=LS_CR, linewidth=LW_CR,
+        alpha=ALPHA_CR, label=LAB_CR,
+    )
+
+    # DFC는 데이터가 있을 때만 그림(legend도 깔끔)
+    if not ap.empty:
+        ax.plot(
+            ap["day_idx"], ap["soc"],
+            color=CLR_APPL, linestyle=LS_APPL, linewidth=LW_APPL,
+            alpha=ALPHA_APPL, label=LAB_APPL,
+        )
 
     style_time_soc_axes(ax)
-    ax.tick_params(axis="x", labelbottom=True)
 
-    leg = ax.legend(loc="lower left", frameon=True, framealpha=0.9, borderaxespad=0.2)
+    leg = ax.legend(
+        loc="lower left",
+        frameon=True, framealpha=0.9,
+        borderaxespad=0.2,
+    )
     frame = leg.get_frame()
     frame.set_edgecolor("grey")
     frame.set_linewidth(0.4)
@@ -425,7 +485,7 @@ def make_figure_weekly_examples():
 
     fig.tight_layout(rect=[0.08, 0.03, 0.99, 0.98])
 
-    base = os.path.join(BASE_OUT, "Figure3_weekly_SOC_clusters")
+    base = os.path.join(BASE_OUT, "Fig_3")
     fig.savefig(base + ".png", dpi=300, bbox_inches="tight")
     fig.savefig(base + ".pdf", dpi=300, bbox_inches="tight")
 

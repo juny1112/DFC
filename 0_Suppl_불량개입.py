@@ -8,6 +8,37 @@ from typing import Tuple, Optional
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+# ─────────────────────────────────────────────────────
+# (토글) 주행실패(SOC==0) 이후 DFC 곡선 표시 여부
+#  - False: 원래대로 끝까지 표시
+#  - True : "마지막 SOC0 연속구간 시작"부터 DFC 곡선 표시 안 함
+# ─────────────────────────────────────────────────────
+CUTOFF_DFC_AFTER_LAST_SOC0 = True
+SOC0_EPS = 1e-9
+
+def last_soc0_block_start_time(
+    df: pd.DataFrame,
+    soc_col: str = "soc",
+    time_col: str = "time"
+) -> Optional[pd.Timestamp]:
+    if df is None or df.empty:
+        return None
+    if soc_col not in df.columns or time_col not in df.columns:
+        return None
+
+    soc = pd.to_numeric(df[soc_col], errors="coerce")
+    mask = soc.notna() & (soc <= SOC0_EPS)
+    if not mask.any():
+        return None
+
+    arr = mask.to_numpy()
+    last_idx = int(np.flatnonzero(arr)[-1])
+    start_idx = last_idx
+    while start_idx > 0 and arr[start_idx - 1]:
+        start_idx -= 1
+
+    return pd.to_datetime(df.iloc[start_idx][time_col])
+
 
 # ─────────────────────────────────────────────────────
 # Global style (Nature Energy-like)
@@ -36,20 +67,20 @@ plt.rcParams.update({
 CLUSTER_CSV = r"G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차\monthly_cluster\dfc_features_with_clusters.csv"
 
 DIR_CR_MAP = {
-    "EV6":    r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\CR_parsing",
-    "Ioniq5": r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\Ioniq5\CR_parsing",
+    "EV6":    r"Z:\SamsungSTF\Processed_Data\DFC\EV6\CR_parsing",
+    "Ioniq5": r"Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\CR_parsing",
 }
 
 # # (기존) 정상 DFC 폴더
 # DIR_DFC_MAP = {
-#     "EV6":    r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차",
-#     "Ioniq5": r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\Ioniq5\DFC_완충후이동주차",
+#     "EV6":    r"Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차",
+#     "Ioniq5": r"Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\DFC_완충후이동주차",
 # }
 
 # (추가) 불량개입 DFC 폴더
 DIR_BAD_DFC_MAP = {
-    "EV6":    r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\불량개입",
-    "Ioniq5": r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\Ioniq5\불량개입",
+    "EV6":    r"Z:\SamsungSTF\Processed_Data\DFC\EV6\불량개입",
+    "Ioniq5": r"Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\불량개입",
 }
 
 # ★ 저장 폴더: Suppl
@@ -275,13 +306,22 @@ def draw_panel(ax, df_cr: pd.DataFrame, df_ap: pd.DataFrame, start_ts: pd.Timest
         ax.axis("off")
         return
 
+    # ── (추가) 토글에 따라 DFC를 SOC0 이후 컷 ──
+    df_ap_plot = df_ap
+    if CUTOFF_DFC_AFTER_LAST_SOC0:
+        cutoff_ts = last_soc0_block_start_time(df_ap)
+        if cutoff_ts is not None:
+            df_ap_plot = df_ap[df_ap["time"] < cutoff_ts].copy()
+
     cr = convert_to_day_axis(df_cr, start_ts, end_ts)
-    ap = convert_to_day_axis(df_ap, start_ts, end_ts)
+    ap = convert_to_day_axis(df_ap_plot, start_ts, end_ts)
 
     ax.plot(cr["day_idx"], cr["soc"], color=CLR_CR, linestyle=LS_CR, linewidth=LW_CR,
             alpha=ALPHA_CR, label=LAB_CR)
-    ax.plot(ap["day_idx"], ap["soc"], color=CLR_APPL, linestyle=LS_APPL, linewidth=LW_APPL,
-            alpha=ALPHA_APPL, label=LAB_APPL)
+
+    if not ap.empty:
+        ax.plot(ap["day_idx"], ap["soc"], color=CLR_APPL, linestyle=LS_APPL, linewidth=LW_APPL,
+                alpha=ALPHA_APPL, label=LAB_APPL)
 
     style_time_soc_axes(ax)
     ax.tick_params(axis="x", labelbottom=True)
@@ -290,6 +330,7 @@ def draw_panel(ax, df_cr: pd.DataFrame, df_ap: pd.DataFrame, start_ts: pd.Timest
     frame = leg.get_frame()
     frame.set_edgecolor("grey")
     frame.set_linewidth(0.4)
+
 
 
 def add_panel_label(ax, label, fontsize=7):
