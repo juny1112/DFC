@@ -37,12 +37,12 @@ plt.rcParams.update({
 CLUSTER_CSV = r"G:\공유 드라이브\BSG_DFC_result\combined\DFC_완충후이동주차\monthly_cluster\dfc_features_with_clusters.csv"
 
 DIR_CR_MAP = {
-    "EV6":    r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차",
-    "Ioniq5": r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\Ioniq5\R_parsing_완충후이동주차",
+    "EV6":    r"Z:\SamsungSTF\Processed_Data\DFC\EV6\R_parsing_완충후이동주차",
+    "Ioniq5": r"Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\R_parsing_완충후이동주차",
 }
 DIR_DFC_MAP = {  # 정상 DFC
-    "EV6":    r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차",
-    "Ioniq5": r"C:\Users\junny\SynologyDrive\SamsungSTF\Processed_Data\DFC\Ioniq5\DFC_완충후이동주차",
+    "EV6":    r"Z:\SamsungSTF\Processed_Data\DFC\EV6\DFC_완충후이동주차",
+    "Ioniq5": r"Z:\SamsungSTF\Processed_Data\DFC\Ioniq5\DFC_완충후이동주차",
 }
 
 # 저장 폴더
@@ -87,7 +87,7 @@ LW_CR       = 1.0
 LW_APPL     = 1.0
 ALPHA_CR    = 0.9
 ALPHA_APPL  = 0.9
-LAB_CR      = "non DFC"
+LAB_CR      = "non-DFC"
 LAB_APPL    = "DFC"
 
 # legend 표시 방식: "first"(첫 패널만) or "each"(모든 패널)

@@ -115,7 +115,7 @@ LW_CR       = 1.3
 LW_APPL     = 1.3
 ALPHA_CR    = 0.9
 ALPHA_APPL  = 0.9
-LAB_CR      = "non DFC"
+LAB_CR      = "non-DFC"
 LAB_APPL    = "DFC"
 
 RE_BASE = re.compile(r"(bms_(?:altitude_)?\d+_\d{4}-\d{2})", re.IGNORECASE)

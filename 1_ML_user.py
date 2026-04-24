@@ -169,60 +169,61 @@ def fit_and_plot_userlevel(df_for_fit: pd.DataFrame, out_dir: Path,
     # ─────────────────────────────────────────────
     # 플롯 (앞에서 만든 monthly 클러스터 figure와 스타일 통일)
     # ─────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(7.5, 6))
+    # Fig.2(a) monthly clustering scatter 스타일로 통일
+    fig, ax = plt.subplots(figsize=(3.3, 2.6), dpi=300)
 
-    # 클러스터 라벨 (legend용)
+    # Fig.2(a)와 동일한 legend 이름
     cluster_labels = {
         0: r"Minimal $R_{\mathrm{FC}}$",
         1: r"Frequent $R_{\mathrm{FC}}$",
         2: r"Long $R_{\mathrm{FC}}$",
     }
 
-    # 색/마커 팔레트 (cluster별 색상)
-    palette = ["#cd534c", "#20854e", "#0073c2"]  # 0,1,2
-    markers = ["o", "s", "^"]
+    # Fig.2(a) 팔레트 (0,1,2)
+    palette = ["#cd534c", "#4dbbd5", "#0073c2"]
 
-    for cid in range(km.n_clusters):
+    # Fig.2(a): marker는 전부 o, s=18, edge 얇게, alpha=0.7
+    for cid in sorted(np.unique(labels)):
         m = (labels == cid)
         if not np.any(m):
             continue
         ax.scatter(
             used_w.loc[m, N_col],
             used_w.loc[m, M_col],
-            s=30,
-            marker=markers[cid % len(markers)],
+            s=18,
+            marker="o",
             c=palette[cid % len(palette)],
             edgecolor="k",
-            linewidth=0.5,
-            alpha=0.9,
+            linewidth=0.3,
+            alpha=0.7,
             label=cluster_labels.get(cid, f"Cluster {cid}"),
         )
 
-    # 축 범위 여유
+    # 축 범위
     ax.set_xlim(x_min - pad_x, x_max + pad_x)
     ax.set_ylim(y_min - pad_y, y_max + pad_y)
 
-    # 축 라벨 (latex 스타일, 앞 figure와 비슷하게)
-    ax.set_xlabel(r"N(DFC)/month", fontsize=8)
-    ax.set_ylabel(r"AVG($\Delta t_{100\%}$)/month", fontsize=8)
+    # Fig.2(a)처럼 축 라벨 문구/스타일 맞춤 (t_100 -> t_FC 반영)
+    ax.set_xlabel("N(DFC)/month", fontsize=6)
+    ax.set_ylabel(r"AVG($\Delta t_{\mathrm{FC}}$)/month (h)", fontsize=6)
+    ax.xaxis.labelpad = 1.0
+    ax.yaxis.labelpad = 1.0
 
-    # 눈금 스타일
-    ax.tick_params(axis="both", labelsize=8, width=1.2, length=5)
+    # Fig.2(a) 스타일: 얇은 tick/spine
+    ax.tick_params(axis="both", labelsize=5, width=0.4, length=2.5, pad=1.5)
+    #thin_spines(ax, lw=0.4)
 
-    # legend (테두리 연한 회색)
-    leg = ax.legend(
-        fontsize=8,
-        loc="upper right",
-        frameon=True,
-    )
+    # legend 스타일
+    leg = ax.legend(fontsize=5, loc="upper right", frameon=True)
     frame = leg.get_frame()
-    frame.set_edgecolor("Grey")
-    frame.set_linewidth(0.6)
+    frame.set_edgecolor("grey")
+    frame.set_linewidth(0.4)
 
     fig.tight_layout()
     plot_path = out_dir / plot_name
-    safe_savefig(fig, plot_path, dpi=200)
+    safe_savefig(fig, plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
+
 
 
     # 라벨 저장 (user_id 유지)
